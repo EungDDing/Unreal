@@ -4,6 +4,10 @@
 #include "MyGameInstance.h"
 #include "Student.h"
 #include "JsonObjectConverter.h"
+#include "UObject/SavePackage.h"
+
+const FString UMyGameInstance::PackageName = TEXT("/Game/Student");
+const FString UMyGameInstance::AssetName = TEXT("Student");
 
 void PrintStudentInfo(const UStudent* InStudent, const FString& InTag)
 {
@@ -12,12 +16,19 @@ void PrintStudentInfo(const UStudent* InStudent, const FString& InTag)
 
 UMyGameInstance::UMyGameInstance()
 {
+	const FString TopSoftObjectPath = FString::Printf(TEXT("%s.%s"), *PackageName, *AssetName);
+	static ConstructorHelpers::FObjectFinder<UStudent> UASSET_TopStudnet(*TopSoftObjectPath);
+	if (UASSET_TopStudnet.Succeeded())
+	{
+		PrintStudentInfo(UASSET_TopStudnet.Object, TEXT("Constructor"));
+	}
 }
 
 void UMyGameInstance::Init()
 {
 	Super::Init();
 
+	// Serialization
 	FStudentData RawDataSrc(16, TEXT("이응민"));
 
 	const FString SavedDir = FPaths::Combine(FPlatformMisc::ProjectDir(), TEXT("Saved"));
@@ -118,4 +129,84 @@ void UMyGameInstance::Init()
 			}
 		}
 	}
+
+	// Package
+	SaveStudentPackage();
+	// LoadStudentPackage();
+	// LoadStudentObject();
+
+	const FString TopSoftObjectPath = FString::Printf(TEXT("%s.%s"), *PackageName, *AssetName);
+	Handle = StreamableManager.RequestAsyncLoad(TopSoftObjectPath,
+		[&]()
+		{
+			if (Handle.IsValid() && Handle->HasLoadCompleted())
+			{
+				UStudent* TopStudent = Cast<UStudent>(Handle->GetLoadedAsset());
+				if (TopStudent)
+				{
+					PrintStudentInfo(TopStudent, TEXT("AsyncLoad"));
+
+					Handle->ReleaseHandle();
+					Handle.Reset();
+				}
+			}
+		}
+	);
+}
+
+void UMyGameInstance::SaveStudentPackage() const
+{
+	UPackage* StudentPackage = ::LoadPackage(nullptr, *PackageName, LOAD_None);
+	if (StudentPackage)
+	{
+		StudentPackage->FullyLoad();
+	}
+
+	StudentPackage = CreatePackage(*PackageName);
+	EObjectFlags ObjectFlag = RF_Public | RF_Standalone;
+
+	UStudent* TopStudent = NewObject<UStudent>(StudentPackage, UStudent::StaticClass(), *AssetName, ObjectFlag);
+	TopStudent->SetName(TEXT("이응민"));
+	TopStudent->SetOrder(36);
+
+	const int NumOfSubs = 10;
+	for (int32 ix = 1; ix <= NumOfSubs; ++ix)
+	{
+		FString SubObjectName = FString::Printf(TEXT("Student%d"), ix);
+		UStudent* SubStudent = NewObject<UStudent>(TopStudent, UStudent::StaticClass(), *SubObjectName, ObjectFlag);
+		SubStudent->SetName(FString::Printf(TEXT("학생%d"), ix));
+		SubStudent->SetOrder(ix);
+	}
+	
+	const FString PackageFileName = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
+	FSavePackageArgs SaveArgs;
+	SaveArgs.TopLevelFlags = ObjectFlag;
+
+	if (UPackage::SavePackage(StudentPackage, nullptr, *PackageFileName, SaveArgs))
+	{
+		UE_LOG(LogTemp, Log, TEXT("패키지가 성공적으로 저장되었습니다."));
+	}
+}
+
+void UMyGameInstance::LoadStudentPackage() const
+{
+	UPackage* StudentPackage = ::LoadPackage(nullptr, *PackageName, LOAD_None);
+	if (nullptr)
+	{
+		UE_LOG(LogTemp, Log, TEXT("패키지를 찾을 수 없습니다."));
+		return;
+	}
+
+	StudentPackage->FullyLoad();
+
+	UStudent* TopStudent = FindObject<UStudent>(StudentPackage, *AssetName);
+	PrintStudentInfo(TopStudent, TEXT("FindObject Asset"));
+}
+
+void UMyGameInstance::LoadStudentObject() const
+{
+	const FString TopSoftObjectPath = FString::Printf(TEXT("%s.%s"), *PackageName, *AssetName);
+
+	UStudent* TopStudent = LoadObject<UStudent>(nullptr, *TopSoftObjectPath);
+	PrintStudentInfo(TopStudent, TEXT("LoadObject Asset"));
 }
